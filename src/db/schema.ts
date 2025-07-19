@@ -10,4 +10,22 @@ export const recentlyPlayed = sqliteTable('recently_played', {
   albumArt: text('album_art').notNull(),
   duration: integer('duration').notNull(),
   playedAt: integer('played_at', { mode: 'timestamp' }).notNull(),
+});
+
+export const madeForYou = sqliteTable('made_for_you', {
+  id: integer('id').primaryKey({ autoIncrement: true }),
+  title: text('title').notNull(),
+  artist: text('artist').notNull(),
+  album: text('album').notNull(),
+  albumArt: text('album_art').notNull(),
+  duration: integer('duration').notNull(),
+});
+
+export const popularAlbums = sqliteTable('popular_albums', {
+  id: integer('id').primaryKey({ autoIncrement: true }),
+  title: text('title').notNull(),
+  artist: text('artist').notNull(),
+  album: text('album').notNull(),
+  albumArt: text('album_art').notNull(),
+  duration: integer('duration').notNull(),
 }); 

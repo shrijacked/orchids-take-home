@@ -1,7 +1,7 @@
 "use client"
 
 import { Play, User } from "lucide-react"
-import { useState } from "react"
+import { useState, useEffect } from "react"
 
 interface Track {
   id: string
@@ -80,56 +80,26 @@ interface SpotifyMainContentProps {
 }
 
 export default function SpotifyMainContent({ onPlayTrack }: SpotifyMainContentProps) {
-  const recentlyPlayed = [
-    { 
-      id: "1",
-      title: "Liked Songs", 
-      artist: "320 songs",
-      album: "Your Music",
-      image: "https://v3.fal.media/files/panda/kvQ0deOgoUWHP04ajVH3A_output.png",
-      duration: 180
-    },
-    { 
-      id: "2",
-      title: "Discover Weekly", 
-      artist: "Spotify",
-      album: "Weekly Mix",
-      image: "https://v3.fal.media/files/kangaroo/HRayeBi01JIqfkCjjoenp_output.png",
-      duration: 210
-    },
-    { 
-      id: "3",
-      title: "Release Radar", 
-      artist: "Spotify",
-      album: "New Releases",
-      image: "https://v3.fal.media/files/panda/q7hWJCgH2Fy4cJdWqAzuk_output.png",
-      duration: 195
-    },
-    { 
-      id: "4",
-      title: "Daily Mix 1", 
-      artist: "Spotify",
-      album: "Daily Mix",
-      image: "https://v3.fal.media/files/elephant/N5qDbXOpqAlIcK7kJ4BBp_output.png",
-      duration: 225
-    },
-    { 
-      id: "5",
-      title: "Chill Hits", 
-      artist: "Spotify",
-      album: "Chill Collection",
-      image: "https://v3.fal.media/files/rabbit/tAQ6AzJJdlEZW-y4eNdxO_output.png",
-      duration: 240
-    },
-    { 
-      id: "6",
-      title: "Top 50 - Global", 
-      artist: "Spotify",
-      album: "Global Charts",
-      image: "https://v3.fal.media/files/kangaroo/0OgdfDAzLEbkda0m7uLJw_output.png",
-      duration: 205
-    }
-  ]
+  const [recentlyPlayed, setRecentlyPlayed] = useState<Track[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    setLoading(true);
+    fetch("/api/recently-played")
+      .then((res) => {
+        if (!res.ok) throw new Error("Failed to fetch");
+        return res.json();
+      })
+      .then((data) => {
+        setRecentlyPlayed(data);
+        setLoading(false);
+      })
+      .catch((err) => {
+        setError(err.message);
+        setLoading(false);
+      });
+  }, []);
 
   const madeForYou = [
     { 
@@ -273,25 +243,23 @@ export default function SpotifyMainContent({ onPlayTrack }: SpotifyMainContentPr
         </div>
       </div>
 
-      {/* Recently Played */}
-      <section className="px-6 py-8">
-        <div className="flex items-center justify-between mb-6">
-          <h2 className="text-xl font-bold text-[var(--color-text-primary)]">Recently played</h2>
-        </div>
-        <div className="flex gap-4 overflow-x-auto pb-4 scrollbar-hide">
-          {recentlyPlayed.map((item, index) => (
-            <div key={index} className="flex-shrink-0">
-              <MusicCard 
-                title={item.title} 
-                artist={item.artist} 
-                image={item.image}
-                size="small"
-                onPlay={() => handlePlayTrack(item)}
-              />
-            </div>
+      {/* Recently Played Section */}
+      <h2 className="text-2xl font-bold mb-4">Recently Played</h2>
+      {loading && <div>Loading...</div>}
+      {error && <div className="text-red-500">Error: {error}</div>}
+      {!loading && !error && (
+        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-6 mb-10">
+          {recentlyPlayed.map((track) => (
+            <MusicCard
+              key={track.id}
+              title={track.title}
+              artist={track.artist}
+              image={track.albumArt}
+              onPlay={() => onPlayTrack?.(track)}
+            />
           ))}
         </div>
-      </section>
+      )}
 
       {/* Made For You */}
       <section className="px-6 py-8">
