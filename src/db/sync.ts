@@ -12,4 +12,22 @@ db.prepare(`CREATE TABLE IF NOT EXISTS recently_played (
   played_at INTEGER NOT NULL
 )`).run();
 
-console.log('Synced schema: recently_played table ensured.'); 
+db.prepare(`CREATE TABLE IF NOT EXISTS made_for_you (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  title TEXT NOT NULL,
+  artist TEXT NOT NULL,
+  album TEXT NOT NULL,
+  album_art TEXT NOT NULL,
+  duration INTEGER NOT NULL
+)`).run();
+
+db.prepare(`CREATE TABLE IF NOT EXISTS popular_albums (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  title TEXT NOT NULL,
+  artist TEXT NOT NULL,
+  album TEXT NOT NULL,
+  album_art TEXT NOT NULL,
+  duration INTEGER NOT NULL
+)`).run();
+
+console.log('Synced schema: all tables ensured.'); 
