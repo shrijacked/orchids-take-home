@@ -46,9 +46,33 @@ function gatherProjectContext(): string {
   return context;
 }
 
+// Improved: Parse for // File: <filename>, // <filename>, or # <filename> and any code block type
+function extractFileCodePairs(text: string): Array<{file: string, code: string}> {
+  // Match file path comments (// File: ..., // ..., # ...), followed by any code block
+  const regex = /(?:\/\/\s*File:\s*|\/\/\s*|#\s*)([\w\/-_.]+)[\r\n]+```(?:typescript|ts|js|tsx|jsx|)?\n([\s\S]*?)```/g;
+  const results: Array<{file: string, code: string}> = [];
+  let match;
+  while ((match = regex.exec(text)) !== null) {
+    results.push({ file: match[1].trim(), code: match[2].trim() });
+  }
+  return results;
+}
+
+// Fallback: if no file markers, just get the first code block and prompt for file
+function extractAnyCodeBlocks(text: string): string[] {
+  const regex = /```[\w]*\n([\s\S]*?)```/g;
+  const matches = [];
+  let match;
+  while ((match = regex.exec(text)) !== null) {
+    matches.push(match[1].trim());
+  }
+  return matches;
+}
+
 async function callGemini(userQuery: string, projectContext: string): Promise<string> {
   if (!GEMINI_API_KEY) throw new Error('GEMINI_API_KEY not set');
-  const prompt = `PROJECT CONTEXT:\n${projectContext}\n\nUSER QUERY:\n${userQuery}`;
+  const outputInstructions = `\n\nINSTRUCTIONS:\nPlease output your response in the following format for each file you modify or create:\n\n// path/to/file.ts\n\`\`\`typescript\n// ...full contents of the file...\n\`\`\`\n\nDo not use diff or patch format. Output the full, updated contents of each file. Only use one file per code block. Do not include explanations or extra text.`;
+  const prompt = `PROJECT CONTEXT:\n${projectContext}\n\nUSER QUERY:\n${userQuery}${outputInstructions}`;
   const body = {
     contents: [
       {
@@ -71,8 +95,21 @@ async function callGemini(userQuery: string, projectContext: string): Promise<st
   return data.candidates?.[0]?.content?.parts?.[0]?.text || JSON.stringify(data);
 }
 
+// Helper to resolve file paths to match project structure
+function resolveFilePath(file: string): string {
+  if (
+    file.startsWith('db/') ||
+    file.startsWith('api/') ||
+    file.startsWith('components/')
+  ) {
+    return 'src/' + file;
+  }
+  return file;
+}
+
 async function main() {
-  let userQuery = process.argv.slice(2).join(' ');
+  let userQuery = process.argv.slice(2).filter(arg => !arg.startsWith('--')).join(' ');
+  const autoYes = process.argv.includes('--yes');
   if (!userQuery) {
     userQuery = await promptUser('What database feature would you like to implement? ');
   }
@@ -84,6 +121,52 @@ async function main() {
     const geminiResponse = await callGemini(userQuery, projectContext);
     logStep('Gemini response:');
     console.log(geminiResponse);
+    // Parse for file/code pairs
+    let fileCodePairs = extractFileCodePairs(geminiResponse);
+    if (fileCodePairs.length === 0) {
+      // fallback: just code block, prompt for file
+      const codeBlocks = extractAnyCodeBlocks(geminiResponse);
+      if (codeBlocks.length === 0) {
+        logStep('No code blocks found in Gemini response.');
+        return;
+      }
+      const code = codeBlocks[0];
+      let file = '';
+      while (!file) {
+        file = autoYes
+          ? 'output.ts' // fallback file for automation, or could throw error
+          : await promptUser('No file specified. Enter the file path to write this code to: ');
+        file = file.trim();
+        if (!file && !autoYes) {
+          logStep('File path cannot be empty. Please enter a valid file path.');
+        }
+      }
+      fileCodePairs = [{ file, code }];
+    }
+    for (const { file, code } of fileCodePairs) {
+      if (!file) {
+        logStep('No file path detected for this code block. Skipping.');
+        continue;
+      }
+      const resolvedFile = resolveFilePath(file);
+      console.log(`\n--- Preview of code to be written to ${resolvedFile} ---\n`);
+      console.log(code);
+      let confirm = 'y';
+      if (!autoYes) {
+        confirm = '';
+        while (!['y', 'n'].includes(confirm)) {
+          confirm = (await promptUser(`\nProceed to overwrite ${resolvedFile} with this code? (y/n): `)).trim().toLowerCase();
+        }
+      } else {
+        logStep(`--yes flag detected: Overwriting ${resolvedFile} automatically.`);
+      }
+      if (confirm === 'y') {
+        fs.writeFileSync(resolvedFile, code, 'utf8');
+        logStep(`${resolvedFile} has been updated.`);
+      } else {
+        logStep(`Aborted. ${resolvedFile} was not changed.`);
+      }
+    }
   } catch (err) {
     logStep('Error calling Gemini: ' + err);
   }

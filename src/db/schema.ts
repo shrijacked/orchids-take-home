@@ -28,4 +28,11 @@ export const popularAlbums = sqliteTable('popular_albums', {
   album: text('album').notNull(),
   albumArt: text('album_art').notNull(),
   duration: integer('duration').notNull(),
-}); 
+});
+
+export const userPlaylists = sqliteTable('user_playlists', {
+  id: integer('id').primaryKey({ autoIncrement: true }),
+  name: text('name').notNull(),
+  description: text('description'),
+  coverArt: text('cover_art'),
+});
