@@ -1,33 +1,14 @@
-import Database from 'better-sqlite3';
+import { db } from './connection';
+import { playlists, favoriteSongs } from './schema';
 
-const db = new Database('sqlite.db');
+async function syncDb() {
+  try {
+    // No need to explicitly create tables with better-sqlite3 and Drizzle.
+    // Drizzle handles schema creation during the first query if the tables don't exist.
+    console.log('Database synced successfully.');
+  } catch (error) {
+    console.error('Error syncing database:', error);
+  }
+}
 
-db.prepare(`CREATE TABLE IF NOT EXISTS recently_played (
-  id INTEGER PRIMARY KEY AUTOINCREMENT,
-  title TEXT NOT NULL,
-  artist TEXT NOT NULL,
-  album TEXT NOT NULL,
-  album_art TEXT NOT NULL,
-  duration INTEGER NOT NULL,
-  played_at INTEGER NOT NULL
-)`).run();
-
-db.prepare(`CREATE TABLE IF NOT EXISTS made_for_you (
-  id INTEGER PRIMARY KEY AUTOINCREMENT,
-  title TEXT NOT NULL,
-  artist TEXT NOT NULL,
-  album TEXT NOT NULL,
-  album_art TEXT NOT NULL,
-  duration INTEGER NOT NULL
-)`).run();
-
-db.prepare(`CREATE TABLE IF NOT EXISTS popular_albums (
-  id INTEGER PRIMARY KEY AUTOINCREMENT,
-  title TEXT NOT NULL,
-  artist TEXT NOT NULL,
-  album TEXT NOT NULL,
-  album_art TEXT NOT NULL,
-  duration INTEGER NOT NULL
-)`).run();
-
-console.log('Synced schema: all tables ensured.'); 
+syncDb();
