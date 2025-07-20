@@ -5,6 +5,7 @@ import readline from 'readline';
 import fetch from 'node-fetch';
 import fs from 'fs';
 import path from 'path';
+import { execSync } from 'child_process';
 
 const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
 const GEMINI_MODEL = 'gemini-2.0-flash';
@@ -319,7 +320,7 @@ REQUIRED FILES TO CREATE (for each requested feature):
 
 IMPORTANT FILE GENERATION RULES:
 - For seed.ts: ALWAYS include sample data insertion for each new table
-- For sync.ts: ALWAYS include table creation logic for all tables
+- For sync.ts: For each table, run a select query (e.g., await db.select().from(table).all();) to ensure Drizzle ORM creates the table in SQLite
 - For schema.ts: Define the exact table structure for each requested feature
 - For API routes: Create GET and POST endpoints for each feature
 
@@ -390,47 +391,48 @@ function normalizeFilePath(filePath: string): string {
     .toLowerCase();
 }
 
+// Helper to extract all table exports from schema code
+function extractTableExports(schemaCode: string): string[] {
+  // Match lines like: export const playlists = sqliteTable(...)
+  const tableExportRegex = /export const (\w+) = sqliteTable/g;
+  const tables: string[] = [];
+  let match;
+  while ((match = tableExportRegex.exec(schemaCode)) !== null) {
+    tables.push(match[1]);
+  }
+  return tables;
+}
+
 // Enhanced function to generate missing core files
 function generateMissingCoreFiles(userQuery: string, existingFiles: string[], projectContext: string): Array<{file: string, code: string}> {
   const missingFiles: Array<{file: string, code: string}> = [];
   const existingPaths = existingFiles.map(f => normalizeFilePath(f));
-  
+
+  // Find schema code in projectContext
+  let schemaCode = '';
+  const schemaMatch = projectContext.match(/\[schema: [^\]]*\]\n([\s\S]*?)(?=\n---|$)/);
+  if (schemaMatch) {
+    schemaCode = schemaMatch[1];
+  }
+  const tableNames = schemaCode ? extractTableExports(schemaCode) : [extractTableNameFromQuery(userQuery) || 'items'];
+
   // Check for missing connection file
   if (!existingPaths.some(p => p.includes('connection.ts')) && !projectContext.includes('connection: src/db/connection.ts')) {
     missingFiles.push({
       file: 'src/db/connection.ts',
-      code: `import Database from 'better-sqlite3';
-import { drizzle } from 'drizzle-orm/better-sqlite3';
-import path from 'path';
-
-const sqlite = new Database(path.join(process.cwd(), 'sqlite.db'));
+      code: `import path from 'path';\nimport { drizzle } from 'drizzle-orm/better-sqlite3';\nimport Database from 'better-sqlite3';\n\nconst sqlite = new Database(path.join(process.cwd(), 'sqlite.db'));
 export const db = drizzle(sqlite);`
     });
   }
 
   // Check for missing sync file
   if (!existingPaths.some(p => p.includes('sync.ts')) && !projectContext.includes('sync: src/db/sync.ts')) {
-    const tableName = extractTableNameFromQuery(userQuery) || 'items';
+    // Generate import lines for all tables
+    const importTables = tableNames.map(t => t).join(', ');
+    const selectLines = tableNames.map(t => `    await db.select().from(${t}).all();`).join('\n');
     missingFiles.push({
       file: 'src/db/sync.ts',
-      code: `import { db } from './connection';
-import { ${tableName} } from './schema';
-
-async function sync() {
-  console.log('Syncing database...');
-  
-  // Create tables - Drizzle handles this automatically when you run queries
-  // But we can verify the connection works
-  try {
-    await db.select().from(${tableName}).limit(1);
-    console.log('Database sync completed successfully!');
-  } catch (error) {
-    console.log('Tables will be created when first accessed.');
-    console.log('Database connection established.');
-  }
-}
-
-sync().catch(console.error);`
+      code: `import { db } from './connection.ts';\nimport { ${importTables} } from './schema.ts';\n\nasync function syncDb() {\n  try {\n${selectLines ? selectLines + '\n' : ''}    console.log('Database synced successfully!');\n  } catch (error) {\n    console.error('Failed to sync database:', error);\n  }\n}\n\nsyncDb();`
     });
   }
 
@@ -439,42 +441,14 @@ sync().catch(console.error);`
     const tableName = extractTableNameFromQuery(userQuery) || 'items';
     missingFiles.push({
       file: 'src/db/seed.ts',
-      code: `import { db } from './connection';
-import { ${tableName} } from './schema';
-
-async function seed() {
-  console.log('Seeding database...');
-  
-  // Clear existing data
-  await db.delete(${tableName});
-  
-  // Insert sample data
-  const sampleData = [
-    {
-      name: 'Sample Item 1',
-      description: 'This is a sample item for testing',
-      createdAt: new Date(),
-    },
-    {
-      name: 'Sample Item 2', 
-      description: 'This is another sample item',
-      createdAt: new Date(),
-    },
-  ];
-
-  await db.insert(${tableName}).values(sampleData);
-  
-  console.log('Database seeded successfully!');
-}
-
-seed().catch(console.error);`
+      code: `import { db } from './connection.ts';\nimport { ${tableName} } from './schema.ts';\n\nasync function seed() {\n  console.log('Seeding database...');\n  \n  // Clear existing data\n  await db.delete(${tableName});\n  \n  // Insert sample data\n  const sampleData = [\n    {\n      name: 'Sample Item 1',\n      description: 'This is a sample item for testing',\n      createdAt: new Date(),\n    },\n    {\n      name: 'Sample Item 2', \n      description: 'This is another sample item',\n      createdAt: new Date(),\n    },\n  ];\n\n  await db.insert(${tableName}).values(sampleData);\n  \n  console.log('Database seeded successfully!');\n}\n\nseed().catch(console.error);`
     });
   }
 
   // Generate missing API routes based on user query
   const requestedRoutes = extractRequestedRoutesFromQuery(userQuery);
   const existingAPIRoutes = existingPaths.filter(p => p.includes('/api/') && p.includes('/route.ts'));
-  
+
   for (const routeName of requestedRoutes) {
     const routePath = `api/${routeName}/route.ts`;
     const normalizedRoutePath = normalizeFilePath(routePath);
@@ -485,36 +459,7 @@ seed().catch(console.error);`
       
       missingFiles.push({
         file: `src/app/api/${routeName}/route.ts`,
-        code: `import { NextResponse } from 'next/server';
-import { db } from '@/db/connection';
-import { ${tableName} } from '@/db/schema';
-
-export async function GET() {
-  try {
-    const items = await db.select().from(${tableName});
-    return NextResponse.json(items);
-  } catch (error: any) {
-    console.error('Error fetching ${routeName.replace(/-/g, ' ')}:', error);
-    return NextResponse.json(
-      { message: 'Error fetching ${routeName.replace(/-/g, ' ')}', error: error.message },
-      { status: 500 }
-    );
-  }
-}
-
-export async function POST(request: Request) {
-  try {
-    const body = await request.json();
-    const result = await db.insert(${tableName}).values(body).returning();
-    return NextResponse.json(result[0]);
-  } catch (error: any) {
-    console.error('Error creating ${routeName.replace(/-/g, ' ')} item:', error);
-    return NextResponse.json(
-      { message: 'Error creating ${routeName.replace(/-/g, ' ')} item', error: error.message },
-      { status: 500 }
-    );
-  }
-}`
+        code: `import { db } from '@/db/connection.ts';\nimport { ${tableName} } from '@/db/schema.ts';\nimport { NextResponse } from 'next/server';\n\nexport async function GET() {\n  try {\n    const items = await db.select().from(${tableName});\n    return NextResponse.json(items);\n  } catch (error: any) {\n    console.error('Error fetching ${routeName.replace(/-/g, ' ')}:', error);\n    return NextResponse.json(\n      { message: 'Error fetching ${routeName.replace(/-/g, ' ')}', error: error.message },\n      { status: 500 }\n    );\n  }\n}\n\nexport async function POST(request: Request) {\n  try {\n    const body = await request.json();\n    const result = await db.insert(${tableName}).values(body).returning();\n    return NextResponse.json(result[0]);\n  } catch (error: any) {\n    console.error('Error creating ${routeName.replace(/-/g, ' ')} item:', error);\n    return NextResponse.json(\n      { message: 'Error creating ${routeName.replace(/-/g, ' ')} item', error: error.message },\n      { status: 500 }\n    );\n  }\n}`
       });
     }
   }
@@ -587,6 +532,40 @@ function resolveFilePath(file: string): string {
   return file;
 }
 
+// Patch imports in generated code to use .ts extensions and correct DB path
+function patchGeneratedCode(file: string, code: string): string {
+  // Patch all local imports to include .ts extension
+  code = code.replace(
+    /from\s+['"](\.\/[a-zA-Z0-9_-]+)(?!\.ts)(['"])/g,
+    "from '$1.ts$2"
+  );
+  // Patch all local imports for @/db/ to .ts as well (for API routes)
+  code = code.replace(
+    /from\s+['"]@\/db\/([a-zA-Z0-9_-]+)(?!\.ts)(['"])/g,
+    "from '@/db/$1.ts$2"
+  );
+  // Ensure DB path is always in project root for connection.ts
+  if (file.endsWith('connection.ts')) {
+    // Remove any broken/duplicated Database instantiations and always insert the correct line
+    code = code.replace(
+      /^const sqlite = new Database.*$/gm,
+      "const sqlite = new Database(path.join(process.cwd(), 'sqlite.db'));"
+    );
+    // If the correct line is missing, add it after the imports
+    if (!code.includes("const sqlite = new Database(path.join(process.cwd(), 'sqlite.db'));")) {
+      // Find the last import statement
+      const importEnd = code.lastIndexOf('import');
+      const afterImport = code.indexOf('\n', importEnd) + 1;
+      code = code.slice(0, afterImport) + "const sqlite = new Database(path.join(process.cwd(), 'sqlite.db'));\n" + code.slice(afterImport);
+    }
+    // Guarantee import path is the first line
+    if (!code.startsWith("import path from 'path';")) {
+      code = "import path from 'path';\n" + code.replace(/^(?!import path from 'path';)/, '');
+    }
+  } 
+  return code;
+}
+
 async function writeFiles(fileCodePairs: Array<{file: string, code: string}>, autoYes: boolean) {
   logStep(`Processing ${fileCodePairs.length} files...`);
   
@@ -598,16 +577,34 @@ async function writeFiles(fileCodePairs: Array<{file: string, code: string}>, au
     
     const resolvedFile = resolveFilePath(file);
     const dir = path.dirname(resolvedFile);
-    
+
     if (!fs.existsSync(dir)) {
       fs.mkdirSync(dir, { recursive: true });
       logStep(`Created directory: ${dir}`);
     }
-    
+
+    let patchedCode = patchGeneratedCode(resolvedFile, code);
+
+    // Special logic for schema.ts: append new tables/types instead of overwriting
+    if (resolvedFile.endsWith('src/db/schema.ts') && fs.existsSync(resolvedFile)) {
+      const existing = fs.readFileSync(resolvedFile, 'utf8');
+      // Extract new export blocks from patchedCode
+      const exportBlocks = patchedCode.split(/(?=export (const|type) )/g).filter(Boolean);
+      let toAppend = '';
+      for (const block of exportBlocks) {
+        // crude check: if export const/type name is already in existing, skip
+        const match = block.match(/export (const|type) (\w+)/);
+        if (match && !existing.includes(`export ${match[1]} ${match[2]}`)) {
+          toAppend += '\n' + block.trim() + '\n';
+        }
+      }
+      patchedCode = existing.trim() + toAppend;
+    }
+
     console.log(`\n${'='.repeat(60)}`);
     console.log(`FILE: ${resolvedFile}`);
     console.log(`${'='.repeat(60)}`);
-    console.log(code);
+    console.log(patchedCode);
     console.log(`${'='.repeat(60)}\n`);
     
     let confirm = 'y';
@@ -622,7 +619,7 @@ async function writeFiles(fileCodePairs: Array<{file: string, code: string}>, au
     
     if (confirm === 'y' || confirm === 'yes' || autoYes) {
       try {
-        fs.writeFileSync(resolvedFile, code, 'utf8');
+        fs.writeFileSync(resolvedFile, patchedCode, 'utf8');
         logStep(`✅ Successfully wrote ${resolvedFile}`);
       } catch (error: any) {
         logStep(`❌ Error writing ${resolvedFile}: ${error.message}`);
@@ -685,6 +682,27 @@ function extractRequestedRoutesFromQuery(userQuery: string): string[] {
   return routes;
 }
 
+function isDrizzleKitInstalled() {
+  try {
+    execSync('npx drizzle-kit --version', { stdio: 'ignore' });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function runDrizzleMigrations() {
+  try {
+    logStep('Generating Drizzle migration...');
+    execSync('npx drizzle-kit generate', { stdio: 'inherit' });
+    logStep('Pushing Drizzle migration...');
+    execSync('npx drizzle-kit push', { stdio: 'inherit' });
+    logStep('Drizzle migrations applied successfully!');
+  } catch (error: any) {
+    logStep(`❌ Error running Drizzle migrations: ${error.message}`);
+  }
+}
+
 async function main() {
   console.log('🤖 Database Agent Starting...\n');
   
@@ -729,6 +747,36 @@ async function main() {
     }
     
     await writeFiles(fileCodePairs, autoYes);
+
+    // Automatically run Drizzle migrations if drizzle-kit is installed
+    if (!isDrizzleKitInstalled()) {
+      logStep('❌ drizzle-kit is not installed.');
+      console.log('\n💡 To fix this:');
+      console.log('1. Install drizzle-kit as a dev dependency:');
+      console.log('   npm install -D drizzle-kit');
+      console.log('2. Re-run the agent.');
+      return;
+    }
+
+    runDrizzleMigrations();
+
+    // Automatically run sync and seed scripts if they exist
+    function runScript(scriptPath: string, description: string) {
+      try {
+        logStep(`Running ${description} (${scriptPath})...`);
+        execSync(`npx ts-node ${scriptPath}`, { stdio: 'inherit' });
+        logStep(`${description} completed successfully!`);
+      } catch (error: any) {
+        logStep(`❌ Error running ${description}: ${error.message}`);
+      }
+    }
+
+    if (fs.existsSync('src/db/sync.ts')) {
+      runScript('src/db/sync.ts', 'database sync');
+    }
+    if (fs.existsSync('src/db/seed.ts')) {
+      runScript('src/db/seed.ts', 'database seed');
+    }
     
     logStep('✅ Database agent completed successfully!');
     

@@ -174,13 +174,13 @@ export default function SpotifyMainContent({ onPlayTrack }: SpotifyMainContentPr
       {!loading && !error && (
         <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-6 mb-10">
           {recentlyPlayed.map((track) => (
-            <MusicCard
+              <MusicCard 
               key={track.id}
               title={track.title}
               artist={track.artist}
               image={track.albumArt}
               onPlay={() => onPlayTrack?.(track)}
-            />
+              />
           ))}
         </div>
       )}
@@ -192,7 +192,7 @@ export default function SpotifyMainContent({ onPlayTrack }: SpotifyMainContentPr
       {!madeForYouLoading && !madeForYouError && (
         <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-6 mb-10">
           {madeForYou.map((track) => (
-            <MusicCard
+            <MusicCard 
               key={track.id}
               title={track.title}
               artist={track.artist}
@@ -210,7 +210,7 @@ export default function SpotifyMainContent({ onPlayTrack }: SpotifyMainContentPr
       {!popularAlbumsLoading && !popularAlbumsError && (
         <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-6 mb-10">
           {popularAlbums.map((track) => (
-            <MusicCard
+            <MusicCard 
               key={track.id}
               title={track.title}
               artist={track.artist}
