@@ -9,6 +9,7 @@
     "lint": "next lint"
   },
   "dependencies": {
+    "@babel/parser": "^7.28.0",
     "@headlessui/react": "^2.2.4",
     "@heroicons/react": "^2.2.0",
     "@hookform/resolvers": "^5.1.1",
@@ -77,6 +78,7 @@
     "react-resizable-panels": "^3.0.3",
     "react-rough-notation": "^1.0.5",
     "react-syntax-highlighter": "^15.6.1",
+    "recast": "^0.23.11",
     "recharts": "^3.0.2",
     "simplex-noise": "^4.0.3",
     "sonner": "^2.0.6",
