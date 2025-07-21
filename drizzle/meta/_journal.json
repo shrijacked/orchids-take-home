@@ -8,6 +8,13 @@
       "when": 1753078614860,
       "tag": "0000_majestic_ultron",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "6",
+      "when": 1753078701654,
+      "tag": "0001_curved_shadowcat",
+      "breakpoints": true
     }
   ]
 }
