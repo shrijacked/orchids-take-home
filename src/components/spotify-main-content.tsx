@@ -1,7 +1,7 @@
 "use client"
 
 import { Play, User } from "lucide-react"
-import { useState, useEffect } from "react"
+import { useEffect, useState } from "react"
 
 interface Track {
   id: string
@@ -80,77 +80,30 @@ interface SpotifyMainContentProps {
 }
 
 export default function SpotifyMainContent({ onPlayTrack }: SpotifyMainContentProps) {
-  const [recentlyPlayed, setRecentlyPlayed] = useState<Track[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-
-  const [madeForYou, setMadeForYou] = useState<Track[]>([]);
-  const [madeForYouLoading, setMadeForYouLoading] = useState(true);
-  const [madeForYouError, setMadeForYouError] = useState<string | null>(null);
-
-  const [popularAlbums, setPopularAlbums] = useState<Track[]>([]);
-  const [popularAlbumsLoading, setPopularAlbumsLoading] = useState(true);
-  const [popularAlbumsError, setPopularAlbumsError] = useState<string | null>(null);
-
+  const [recentlyPlayed, setRecentlyPlayed] = useState<any[]>([]);
+  const [madeForYou, setMadeForYou] = useState<any[]>([]);
+  const [popularAlbums, setPopularAlbums] = useState<any[]>([]);
+  
   useEffect(() => {
-    setLoading(true);
-    fetch("/api/recently-played")
-      .then((res) => {
-        if (!res.ok) throw new Error("Failed to fetch");
-        return res.json();
-      })
-      .then((data) => {
-        setRecentlyPlayed(data);
-        setLoading(false);
-      })
-      .catch((err) => {
-        setError(err.message);
-        setLoading(false);
-      });
-  }, []);
-
-  useEffect(() => {
-    setMadeForYouLoading(true);
+    fetch("/api/recently-played-songs")
+      .then((res) => res.json())
+      .then((data) => setRecentlyPlayed(data || []));
     fetch("/api/made-for-you")
-      .then((res) => {
-        if (!res.ok) throw new Error("Failed to fetch");
-        return res.json();
-      })
-      .then((data) => {
-        setMadeForYou(data);
-        setMadeForYouLoading(false);
-      })
-      .catch((err) => {
-        setMadeForYouError(err.message);
-        setMadeForYouLoading(false);
-      });
-  }, []);
-
-  useEffect(() => {
-    setPopularAlbumsLoading(true);
+      .then((res) => res.json())
+      .then((data) => setMadeForYou(data || []));
     fetch("/api/popular-albums")
-      .then((res) => {
-        if (!res.ok) throw new Error("Failed to fetch");
-        return res.json();
-      })
-      .then((data) => {
-        setPopularAlbums(data);
-        setPopularAlbumsLoading(false);
-      })
-      .catch((err) => {
-        setPopularAlbumsError(err.message);
-        setPopularAlbumsLoading(false);
-      });
+      .then((res) => res.json())
+      .then((data) => setPopularAlbums(data || []));
   }, []);
 
   const handlePlayTrack = (item: any) => {
     const track: Track = {
-      id: item.id,
+      id: item.id || '',
       title: item.title,
       artist: item.artist,
-      album: item.album,
-      albumArt: item.image || '/api/placeholder/56/56',
-      duration: item.duration
+      album: item.album || '',
+      albumArt: item.image || item.imageUrl || '/api/placeholder/56/56',
+      duration: item.duration || 0
     }
     onPlayTrack?.(track)
   }
@@ -167,59 +120,69 @@ export default function SpotifyMainContent({ onPlayTrack }: SpotifyMainContentPr
         </div>
       </div>
 
-      {/* Recently Played Section */}
-      <h2 className="text-2xl font-bold mb-4">Recently Played</h2>
-      {loading && <div>Loading...</div>}
-      {error && <div className="text-red-500">Error: {error}</div>}
-      {!loading && !error && (
-        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-6 mb-10">
-          {recentlyPlayed.map((track) => (
+      {/* Recently Played */}
+      <section className="px-6 py-8">
+        <div className="flex items-center justify-between mb-6">
+          <h2 className="text-xl font-bold text-[var(--color-text-primary)]">Recently played</h2>
+        </div>
+        <div className="flex gap-4 overflow-x-auto pb-4 scrollbar-hide">
+          {recentlyPlayed.map((item, index) => (
+            <div key={index} className="flex-shrink-0">
               <MusicCard 
-              key={track.id}
-              title={track.title}
-              artist={track.artist}
-              image={track.albumArt}
-              onPlay={() => onPlayTrack?.(track)}
+                title={item.title} 
+                artist={item.artist} 
+                image={item.image || item.imageUrl}
+                size="small"
+                onPlay={() => handlePlayTrack(item)}
               />
+            </div>
           ))}
         </div>
-      )}
+      </section>
 
-      {/* Made For You Section */}
-      <h2 className="text-2xl font-bold mb-4">Made for You</h2>
-      {madeForYouLoading && <div>Loading...</div>}
-      {madeForYouError && <div className="text-red-500">Error: {madeForYouError}</div>}
-      {!madeForYouLoading && !madeForYouError && (
-        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-6 mb-10">
-          {madeForYou.map((track) => (
+      {/* Made For You */}
+      <section className="px-6 py-8">
+        <div className="flex items-center justify-between mb-6">
+          <h2 className="text-xl font-bold text-[var(--color-text-primary)]">Made For You</h2>
+          <button className="text-[var(--color-text-secondary)] text-sm font-medium hover:text-[var(--color-text-primary)] transition-colors">
+            Show all
+          </button>
+        </div>
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5 gap-4">
+          {madeForYou.map((item, index) => (
             <MusicCard 
-              key={track.id}
-              title={track.title}
-              artist={track.artist}
-              image={track.albumArt}
-              onPlay={() => onPlayTrack?.(track)}
+              key={index}
+              title={item.title} 
+              artist={item.artist}
+              image={item.image || item.imageUrl}
+              size="medium"
+              onPlay={() => handlePlayTrack(item)}
             />
           ))}
         </div>
-      )}
+      </section>
 
-      {/* Popular Albums Section */}
-      <h2 className="text-2xl font-bold mb-4">Popular Albums</h2>
-      {popularAlbumsLoading && <div>Loading...</div>}
-      {popularAlbumsError && <div className="text-red-500">Error: {popularAlbumsError}</div>}
-      {!popularAlbumsLoading && !popularAlbumsError && (
-        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-6 mb-10">
-          {popularAlbums.map((track) => (
+      {/* Popular Albums */}
+      <section className="px-6 py-8">
+        <div className="flex items-center justify-between mb-6">
+          <h2 className="text-xl font-bold text-[var(--color-text-primary)]">Popular albums</h2>
+          <button className="text-[var(--color-text-secondary)] text-sm font-medium hover:text-[var(--color-text-primary)] transition-colors">
+            Show all
+          </button>
+        </div>
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-6 gap-4">
+          {popularAlbums.map((item, index) => (
             <MusicCard 
-              key={track.id}
-              title={track.title}
-              artist={track.artist}
-              image={track.albumArt}
-              onPlay={() => onPlayTrack?.(track)}
+              key={index}
+              title={item.title} 
+              artist={item.artist}
+              image={item.image || item.imageUrl}
+              size="medium"
+              onPlay={() => handlePlayTrack(item)}
             />
           ))}
         </div>
-      )}
+      </section>
 
       <style jsx>{`
         .scrollbar-hide {
