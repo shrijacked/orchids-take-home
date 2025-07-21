@@ -6,6 +6,7 @@ import fetch from 'node-fetch';
 import fs from 'fs';
 import path from 'path';
 import { execSync } from 'child_process';
+import recast from 'recast';
 
 const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
 const GEMINI_MODEL = 'gemini-2.0-flash';
@@ -324,6 +325,16 @@ IMPORTANT FILE GENERATION RULES:
 - For schema.ts: Define the exact table structure for each requested feature
 - For API routes: Create GET and POST endpoints for each feature
 
+FRONTEND INTEGRATION REQUIREMENTS:
+- For each new API route, update or create a React component to fetch and display the data in the correct UI section.
+- If the section exists, update it to use the new API.
+- If not, create a new section/component using the project’s design system.
+- Insert the component into the main UI (e.g., spotify-main-content.tsx).
+- Do not require manual intervention for frontend integration.
+- Use the project’s design system/components for rendering.
+- Ensure the site actually fetches and displays the new data on the frontend.
+- You MUST generate a React component (e.g., src/components/top-tracks.tsx) that fetches from the new API and displays the data. You MUST also show the code for patching src/components/spotify-main-content.tsx to import and render this component. Do not skip frontend files. If you do not generate the frontend files, the task is considered incomplete.
+
 OUTPUT FORMAT:
 For each file, use this exact format:
 
@@ -566,25 +577,102 @@ function patchGeneratedCode(file: string, code: string): string {
   return code;
 }
 
+// Helper to patch the main content file for new frontend integration
+async function patchSpotifyMainContentFile({
+  mainContentPath,
+  newComponentName,
+  newComponentImportPath,
+  sectionTitle,
+  sectionJSX
+}: {
+  mainContentPath: string,
+  newComponentName: string,
+  newComponentImportPath: string,
+  sectionTitle: string,
+  sectionJSX: string
+}) {
+  if (!fs.existsSync(mainContentPath)) return;
+  const code = fs.readFileSync(mainContentPath, 'utf8');
+  const tsParser = (await import('recast/parsers/typescript.js')).default;
+  const ast = recast.parse(code, { parser: tsParser });
+  const b = recast.types.builders;
+  let importFound = false;
+
+  recast.types.visit(ast, {
+    visitImportDeclaration(path) {
+      if (path.node.source.value === newComponentImportPath) {
+        importFound = true;
+      }
+      this.traverse(path);
+    }
+  });
+
+  // Add import if missing
+  if (!importFound) {
+    const importDecl = b.importDeclaration(
+      [b.importSpecifier(b.identifier(newComponentName))],
+      b.literal(newComponentImportPath)
+    );
+    ast.program.body.unshift(importDecl);
+  }
+
+  // Remove old section (by sectionTitle)
+  recast.types.visit(ast, {
+    visitJSXElement(path) {
+      const opening = path.node.openingElement;
+      if (
+        opening.name.type === 'JSXIdentifier' &&
+        opening.name.name === 'h2' &&
+        Array.isArray(path.node.children) &&
+        path.node.children.some(
+          c => c.type === 'JSXText' && c.value.trim() === sectionTitle
+        )
+      ) {
+        // Remove the parent section (assume parent is the section div)
+        if (path.parentPath && path.parentPath.node.type === 'JSXElement') {
+          path.parentPath.replace();
+        }
+      }
+      this.traverse(path);
+    }
+  });
+
+  // Insert new section at the end of the main return div
+  recast.types.visit(ast, {
+    visitReturnStatement(path) {
+      const jsxRoot = path.node.argument;
+      if (jsxRoot && jsxRoot.type === 'JSXElement' && Array.isArray(jsxRoot.children)) {
+        jsxRoot.children.push(
+          b.jsxElement(
+            b.jsxOpeningElement(b.jsxIdentifier(newComponentName), [], true),
+            null,
+            []
+          )
+        );
+      }
+      return false;
+    }
+  });
+
+  const output = recast.print(ast).code;
+  fs.writeFileSync(mainContentPath, output, 'utf8');
+}
+
+// Patch writeFiles to use patchSpotifyMainContentFile for main content integration
 async function writeFiles(fileCodePairs: Array<{file: string, code: string}>, autoYes: boolean) {
   logStep(`Processing ${fileCodePairs.length} files...`);
-  
   for (const { file, code } of fileCodePairs) {
     if (!file || !code) {
       logStep('Skipping invalid file/code pair.');
       continue;
     }
-    
     const resolvedFile = resolveFilePath(file);
     const dir = path.dirname(resolvedFile);
-
     if (!fs.existsSync(dir)) {
       fs.mkdirSync(dir, { recursive: true });
       logStep(`Created directory: ${dir}`);
     }
-
     let patchedCode = patchGeneratedCode(resolvedFile, code);
-
     // Special logic for schema.ts: append new tables/types instead of overwriting
     if (resolvedFile.endsWith('src/db/schema.ts') && fs.existsSync(resolvedFile)) {
       const existing = fs.readFileSync(resolvedFile, 'utf8');
@@ -600,13 +688,35 @@ async function writeFiles(fileCodePairs: Array<{file: string, code: string}>, au
       }
       patchedCode = existing.trim() + toAppend;
     }
-
+    // Patch main content file if writing a new frontend component
+    if (
+      resolvedFile.startsWith('src/components/') &&
+      resolvedFile.endsWith('.tsx') &&
+      !resolvedFile.includes('spotify-main-content')
+    ) {
+      const mainContentPath = 'src/components/spotify-main-content.tsx';
+      const newComponentName =
+        path.basename(resolvedFile, '.tsx').replace(/(^\w|[-_]\w)/g, m => m.replace(/[-_]/, '').toUpperCase());
+      const newComponentImportPath = `@/components/${path.basename(resolvedFile, '.tsx')}`;
+      const sectionTitle = newComponentName.replace(/([A-Z])/g, ' $1').trim();
+      await patchSpotifyMainContentFile({
+        mainContentPath,
+        newComponentName,
+        newComponentImportPath,
+        sectionTitle,
+        sectionJSX: `<${newComponentName} />`
+      });
+    }
+    // Never write to src/app/spotify-main-content.tsx
+    if (resolvedFile === 'src/app/spotify-main-content.tsx') {
+      if (fs.existsSync(resolvedFile)) fs.unlinkSync(resolvedFile);
+      continue;
+    }
     console.log(`\n${'='.repeat(60)}`);
     console.log(`FILE: ${resolvedFile}`);
     console.log(`${'='.repeat(60)}`);
     console.log(patchedCode);
     console.log(`${'='.repeat(60)}\n`);
-    
     let confirm = 'y';
     if (!autoYes) {
       while (!['y', 'n', 'yes', 'no'].includes(confirm.toLowerCase())) {
@@ -616,7 +726,6 @@ async function writeFiles(fileCodePairs: Array<{file: string, code: string}>, au
     } else {
       logStep(`Auto-writing ${resolvedFile}...`);
     }
-    
     if (confirm === 'y' || confirm === 'yes' || autoYes) {
       try {
         fs.writeFileSync(resolvedFile, patchedCode, 'utf8');
